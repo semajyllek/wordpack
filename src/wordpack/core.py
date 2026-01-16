@@ -183,18 +183,29 @@ class WordFiller:
                 - fixed_radius (float): Optional fixed circle radius
                 - batch_size (int): Circles per render update. Default: 40
                 - show_outline (bool): Show glyph outlines. Default: True
+                - use_hybrid (bool): Use hybrid packing for better corner filling. Default: True
         """
-        # Build configurations
+        # Build font configuration
         f_cfg = FontConfig(
             family=kwargs.get('font_family', 'serif'),
             weight=kwargs.get('font_weight', 'bold'),
             resolution=kwargs.get('resolution', 10),
             letter_spacing=kwargs.get('letter_spacing', 1.1)
         )
+        
+        # Build packing configuration
+        # Note: Glyphs are complex/concave shapes, so hybrid mode is recommended
+        fixed_radius = kwargs.get('fixed_radius')
+        use_hybrid = kwargs.get('use_hybrid', True)
+        
         p_cfg = PackingConfig(
             padding=kwargs.get('padding', 1.5),
             min_radius=kwargs.get('min_radius', 1.0),
-            max_failed_attempts=kwargs.get('max_failed_attempts', 200)
+            max_failed_attempts=kwargs.get('max_failed_attempts', 200),
+            fixed_radius=fixed_radius,
+            use_hybrid_packing=use_hybrid,
+            # For fixed radius without hybrid, use hex grid for speed
+            use_hex_grid=(fixed_radius is not None and not use_hybrid),
         )
         
         # Process color weights if provided
@@ -239,41 +250,41 @@ class WordFiller:
         global_count = 0
 
         for idx, char in enumerate(text):
+            # Create packer for this glyph's polygons
             packer = CirclePacker(self.glyph_groups[idx], p_cfg)
-            gen = packer.generate(fixed_radius=kwargs.get('fixed_radius'))
+            
+            # Use generate() for streaming circles
+            gen = packer.generate()
             letter_count = 0
             
-            while True:
-                try:
-                    x, y, r = next(gen)
-                    
-                    # Determine circle color
-                    if color_weights and color_keys and probs:
-                        color = np.random.choice(color_keys, p=probs)
-                    else:
-                        ix = int(np.clip(x, 0, self.W - 1))
-                        iy = int(np.clip(y, 0, self.H - 1))
-                        color = np.array(self.image.getpixel((ix, iy))) / 255.0
-                    
-                    all_circles.append(plt.Circle((x, y), r, facecolor=color))
-                    letter_count += 1
-                    global_count += 1
-                    
-                    # Periodic rendering
-                    batch_size = kwargs.get('batch_size', 40)
-                    if letter_count % batch_size == 0:
-                        self._render(
-                            ax, fig, all_circles, char, 
-                            letter_count, global_count, 
-                            kwargs.get('show_outline', True)
-                        )
-                except StopIteration:
+            for x, y, r in gen:
+                # Determine circle color
+                if color_weights and color_keys and probs:
+                    color = np.random.choice(color_keys, p=probs)
+                else:
+                    ix = int(np.clip(x, 0, self.W - 1))
+                    iy = int(np.clip(y, 0, self.H - 1))
+                    color = np.array(self.image.getpixel((ix, iy))) / 255.0
+                
+                all_circles.append(plt.Circle((x, y), r, facecolor=color))
+                letter_count += 1
+                global_count += 1
+                
+                # Periodic rendering
+                batch_size = kwargs.get('batch_size', 40)
+                if letter_count % batch_size == 0:
                     self._render(
                         ax, fig, all_circles, char, 
                         letter_count, global_count, 
                         kwargs.get('show_outline', True)
                     )
-                    break
+            
+            # Final render for this letter
+            self._render(
+                ax, fig, all_circles, char, 
+                letter_count, global_count, 
+                kwargs.get('show_outline', True)
+            )
 
     def _render(
         self, 
