@@ -2,7 +2,8 @@
 
 Create stunning circle-packed text art by filling typography with circles colored from an underlying image. Built on top of [diskpack](https://pypi.org/project/diskpack/).
 
-![Example Output](examples/example_output.png)
+![packed star](wordpack.png)
+
 
 ## Features
 
